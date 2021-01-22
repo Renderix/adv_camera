@@ -10,6 +10,7 @@ import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.Point;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.hardware.Camera;
@@ -29,6 +30,10 @@ import android.view.View;
 
 import androidx.annotation.NonNull;
 
+import com.google.mlkit.vision.barcode.Barcode;
+import com.ric.adv_camera.vision.VisionCamera;
+import com.ric.adv_camera.vision.barcodescanner.BarcodeScannerProcessor;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -36,7 +41,9 @@ import java.io.OutputStream;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -45,10 +52,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.PluginRegistry;
 import io.flutter.plugin.platform.PlatformView;
+
+import static com.ric.adv_camera.vision.VisionCamera.IMAGE_FORMAT;
 
 class WaitForCameraObject {
     MethodChannel.Result o;
@@ -64,7 +74,7 @@ class WaitForCameraObject {
 
 @SuppressWarnings("ALL")
 public class AdvCamera implements MethodChannel.MethodCallHandler,
-        PlatformView, SurfaceHolder.Callback {
+        PlatformView, SurfaceHolder.Callback, EventChannel.StreamHandler {
     private final MethodChannel methodChannel;
     private final Context context;
     private final Activity activity;
@@ -92,6 +102,19 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
     private WaitForCameraObject waitForCameraObject;
     private int focusRectColor = Color.GREEN;
     private float focusRectSize = 100f;
+    private boolean enableMlVision = false;
+
+    private int barcodeFormats = Barcode.FORMAT_ALL_FORMATS;
+
+    private  EventChannel.EventSink mEventSink = null;
+    private BarcodeScannerProcessor barcodeScanner;
+    private float initialWidth;
+    private float initialHeight;
+
+    private boolean enableDebugMode;
+
+
+    private VisionCamera visionCamera;
 
     @SuppressLint({"InflateParams", "ClickableViewAccessibility"})
     AdvCamera(
@@ -101,9 +124,13 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
         this.context = context;
         this.activity = registrar.activity();
 
-        methodChannel =
-                new MethodChannel(registrar.messenger(), "plugins.flutter.io/adv_camera/" + id);
+        methodChannel = new MethodChannel(registrar.messenger(), "plugins.flutter.io/adv_camera/" + id);
         methodChannel.setMethodCallHandler(this);
+
+        final EventChannel eventChannel = new EventChannel(registrar.messenger(), "plugins.flutter.io/adv_camera/barcodeStream");
+        eventChannel.setStreamHandler(this);
+
+
         view = registrar.activity().getLayoutInflater().inflate(com.ric.adv_camera.R.layout.activity_camera, null);
         imgSurface = view.findViewById(com.ric.adv_camera.R.id.imgSurface);
         final SurfaceView x = view.findViewById(R.id.TransparentView);
@@ -143,6 +170,11 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
             Object focusRectColorGreen = params.get("focusRectColorGreen");
             Object focusRectColorBlue = params.get("focusRectColorBlue");
             Object focusRectSize = params.get("focusRectSize");
+            Object enableMlVision = params.get("enableMlVision");
+            Object barcodeFormats = params.get("barcodeFormats");
+            Object initialWidth = params.get("initialWidth");
+            Object initialHeight = params.get("initialHeight");
+            Object enableDebugMode = params.get("enableDebugMode");
 
             if (initialCamera != null) {
                 if (initialCamera.equals("front")) {
@@ -190,6 +222,31 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
             if (focusRectSize != null) {
                 this.focusRectSize = Float.parseFloat(focusRectSize.toString());
             }
+
+            if(enableMlVision != null) {
+                this.enableMlVision = Boolean.parseBoolean(enableMlVision.toString());
+            }
+
+            if(barcodeFormats != null) {
+                this.barcodeFormats = Integer.parseInt(barcodeFormats.toString());
+            }
+
+            if(initialWidth != null) {
+                this.initialWidth = Float.parseFloat(initialWidth.toString());
+            } else  {
+                this.initialWidth = 1280;
+            }
+
+            if(initialHeight != null) {
+                this.initialHeight = Float.parseFloat(initialHeight.toString());
+            } else  {
+                this.initialHeight = 720;
+            }
+
+            if(enableDebugMode != null) {
+                this.enableDebugMode = Boolean.parseBoolean(enableDebugMode.toString());
+            }
+
         }
 
         imgSurface.setOnTouchListener(new View.OnTouchListener() {
@@ -199,6 +256,9 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
                 Camera.Parameters params = camera.getParameters();
 
                 int action = event.getAction();
+
+                Log.d(TAG,"onTouch: pointer count"+ event.getPointerCount()+" action: "+action);
+
 
                 if (event.getPointerCount() > 1) {
                     // handle multi-touch events
@@ -242,6 +302,8 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
         };
 
         identifyOrientationEvents();
+        visionCamera = new VisionCamera(activity);
+        barcodeScanner = new BarcodeScannerProcessor(this.context, this.barcodeFormats, this.enableDebugMode);
     }
 
     private void captureImage() {
@@ -293,12 +355,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
 
                 camera.stopPreview();
                 camera.setParameters(param);
-                try {
-                    camera.setPreviewDisplay(surfaceHolder);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-                camera.startPreview();
+                startPreview();
 
                 result.success(true);
                 break;
@@ -332,6 +389,11 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
                 setupCamera();
                 result.success(true);
                 break;
+            case "getPreviewSize": {
+                final Camera.Size size = camera.getParameters().getPreviewSize();
+                result.success(size.width + ":" + size.height);
+                break;
+            }
             case "getPictureSizes": {
                 List<String> pictureSizes = new ArrayList<>();
 
@@ -365,15 +427,12 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
 
                 try {
                     camera.setParameters(param);
-                    camera.setPreviewDisplay(surfaceHolder);
                     this.pictureSize = camera.new Size(pictureWidth, pictureHeight);
-                } catch (IOException e) {
-                    error = e.getMessage();
                 } catch (RuntimeException e) {
                     error = e.getMessage();
                 }
 
-                camera.startPreview();
+                startPreview();
 
                 if (error.isEmpty()) {
                     result.success(true);
@@ -436,12 +495,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
 
                 camera.stopPreview();
                 camera.setParameters(param);
-                try {
-                    camera.setPreviewDisplay(surfaceHolder);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-                camera.startPreview();
+                startPreview();
 
                 result.success(true);
                 break;
@@ -459,6 +513,12 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
                 handleFocus(x, y);
                 break;
             }
+
+            case "turnOn" : {
+                startPreview();
+                result.success(null);
+                break;
+            }
         }
     }
 
@@ -474,6 +534,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
         }
         disposed = true;
         methodChannel.setMethodCallHandler(null);
+
 
         CameraFragment f = (CameraFragment) activity.getFragmentManager()
                 .findFragmentById(com.ric.adv_camera.R.id.cameraFragment);
@@ -506,29 +567,33 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
 
         try {
             Camera.Parameters param = camera.getParameters();
+            List<Camera.Size> sizes = param.getSupportedPictureSizes();
+            Collections.sort(sizes, new Comparator<Camera.Size>() {
+                @Override
+                public int compare(Camera.Size o1, Camera.Size o2) {
+                    return (o2.width - o1.width) + (o2.height - o1.height);
+                }
+            });
 
             if (this.bestPictureSize) {
-                List<Camera.Size> sizes2 = param.getSupportedPictureSizes();
-                Collections.sort(sizes2, new Comparator<Camera.Size>() {
-                    @Override
-                    public int compare(Camera.Size o1, Camera.Size o2) {
-                        return (o2.width - o1.width) + (o2.height - o1.height);
-                    }
-                });
-
-                pictureSize = sizes2.get(0);
+                pictureSize = sizes.get(0);
             } else {
                 pictureSize = param.getPictureSize();
             }
 
-            List<Camera.Size> sizes = param.getSupportedPreviewSizes();
-            Camera.Size selectedSize = sizes.get(0);
+            for(Camera.Size s : sizes) {
+                Log.d(TAG, "available size: "+s.width+"x"+s.height);
+            }
+
+            Camera.Size selectedSize = sizes.get((int) Math.floor(sizes.size()/2));
             for (Camera.Size size : sizes) {
-                if (asFraction(size.width, size.height).equals(this.previewRatio)) {
+                if (size.width == initialWidth && size.height == initialHeight) {
                     selectedSize = size;
                     break;
                 }
             }
+
+            Log.d(TAG, ">> selected size: "+selectedSize.width+"x"+selectedSize.height);
 
             //get diff to get perfact preview sizes
             DisplayMetrics displaymetrics = new DisplayMetrics();
@@ -538,23 +603,40 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
             param.setPictureSize(pictureSize.width, pictureSize.height);
             param.setFlashMode(translateFlashType(param.getSupportedFlashModes()));
 
+
             List<String> supportedFocusMode = param.getSupportedFocusModes();
-            String focusMode = Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE;
-            if (!supportedFocusMode.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
-                if (supportedFocusMode.size() > 0) {
-                    focusMode = supportedFocusMode.get(0);
-                }
+            for (String _mode : supportedFocusMode) {
+                Log.d(TAG, "available focus mode: "+_mode);
             }
+
+
+
+            String focusMode = Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE;
+            if (!supportedFocusMode.contains(focusMode)) {
+                focusMode =  Camera.Parameters.FOCUS_MODE_AUTO;
+            }
+            Log.i(TAG, "Set Focus mode "+focusMode);
             param.setFocusMode(focusMode);
+            param.setPreviewFormat(IMAGE_FORMAT);
+
 
             /// I block this script because Xiaomi 4a and Huawei gets rotated because of this
             int orientation = setCameraDisplayOrientation(0);
 //            param.setRotation(orientation);
+            //SetRecordingHint to true also a workaround for low framerate on Nexus 4
+            //https://stackoverflow.com/questions/14131900/extreme-camera-lag-on-nexus-4
+            param.setRecordingHint(true);
 
             try {
                 camera.setParameters(param);
             } catch (RuntimeException e) {
-                Log.d("AdvCamera", "set Parameters Failed\n" + pictureSize.width + ", " + pictureSize.height);
+                //Log.d(TAG, "set Parameters Failed\n" + pictureSize.width + ", " + pictureSize.height);
+                Log.e(TAG, "Set Camera Paramters failed", e);
+            }
+
+            if(this.enableMlVision) {
+                visionCamera.setMachineLearningFrameProcessor(barcodeScanner);
+                visionCamera.start(camera);
             }
 
             camera.setPreviewDisplay(surfaceHolder);
@@ -589,12 +671,14 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+        Log.d(TAG, "surfaceChanged");
         refreshCamera();
     }
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         try {
+            visionCamera.release();
             camera.stopPreview();
             camera.release();
             camera = null;
@@ -648,6 +732,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
 
     }
 
+
     private void refreshCamera() {
         if (surfaceHolder.getSurface() == null) {
             return;
@@ -662,15 +747,25 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
         }
     }
 
+    void startPreview() {
+        try {
+            camera.setPreviewDisplay(surfaceHolder);
+            if (enableMlVision && visionCamera != null) {
+                visionCamera.bindPreviewCallbacks();
+            }
+            camera.startPreview();
+        } catch (IOException exception) {
+            exception.printStackTrace();
+        }
+    }
+
     private void refreshCameraPreview(Camera.Parameters param) {
         try {
             //this is unnecessary because on certain device (Xiaomi 4A / Huawei) it is rotated
             int orientation = setCameraDisplayOrientation(0);
 //            param.setRotation(orientation);
             camera.setParameters(param);
-
-            camera.setPreviewDisplay(surfaceHolder);
-            camera.startPreview();
+            startPreview();
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -681,6 +776,20 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
         if (savePicTask != null && savePicTask.getStatus() == AsyncTask.Status.RUNNING) {
             savePicTask.cancel(true);
         }
+    }
+
+    @Override
+    public void onListen(Object arguments, EventChannel.EventSink events) {
+
+        mEventSink = events;
+        this.barcodeScanner.setEventSink(mEventSink);
+
+    }
+
+    @Override
+    public void onCancel(Object arguments) {
+        mEventSink.endOfStream();
+        mEventSink = null;
     }
 
     @SuppressLint("StaticFieldLeak")
@@ -936,6 +1045,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
     }
 
     private void handleFocus(float initialX, float initialY) {
+        Log.d(TAG, "handleFocus");
         final int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
         int surfaceHeight = imgSurface.getHeight();
         int surfaceWidth = imgSurface.getWidth();
@@ -1048,6 +1158,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
                 camera.autoFocus(new Camera.AutoFocusCallback() {
                     @Override
                     public void onAutoFocus(boolean success, Camera camera) {
+                        Log.d(TAG, "autofocus result: "+success);
                     }
                 });
             } catch (Exception e) {
@@ -1075,6 +1186,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
         return (a / gcm) + ":" + (b / gcm);
     }
 
+    private static String TAG = "ADV_CAMERA";
 
     Canvas canvas;
     Paint paint;

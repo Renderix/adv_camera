@@ -1,5 +1,6 @@
 library adv_camera;
 
+import 'dart:ui';
 import 'dart:async';
 import 'dart:io';
 
@@ -10,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 part 'controller.dart';
+part 'barcodes.dart';
 
 //class AdvCamera {
 //  static const MethodChannel _channel =
@@ -41,6 +43,12 @@ class AdvCamera extends StatefulWidget {
   final Color focusRectColor;
   final int focusRectSize;
   final bool checkPermissionAtStartup;
+  final bool enableMlVision;
+  final BarcodeFormat barcodeFormats;
+  final double initialWidth;
+  final double initialHeight;
+  final bool enableDebugMode;
+
 
   const AdvCamera({
     Key key,
@@ -55,6 +63,11 @@ class AdvCamera extends StatefulWidget {
     this.focusRectColor,
     this.focusRectSize,
     this.checkPermissionAtStartup = true,
+    this.enableMlVision = false,
+    this.barcodeFormats,
+    this.initialWidth,
+    this.initialHeight,
+    this.enableDebugMode = false
   })  : this.initialCameraType = initialCameraType ?? CameraType.rear,
         this.cameraPreviewRatio =
             cameraPreviewRatio ?? CameraPreviewRatio.r16_9,
@@ -157,6 +170,11 @@ class _AdvCameraState extends State<AdvCamera> {
       "focusRectColorGreen": widget.focusRectColor?.green ?? 199,
       "focusRectColorBlue": widget.focusRectColor?.blue ?? 12,
       "focusRectSize": widget.focusRectSize ?? 100,
+      "enableMlVision": widget.enableMlVision,
+      "barcodeFormats": widget.barcodeFormats?.value ??BarcodeFormat.all.value,
+      "initialHeight": widget.initialHeight ?? 720,
+      "initialWidth": widget.initialWidth?? 1280,
+      "enableDebugMode": widget.enableDebugMode
       //for first run on Android (because on each device the default picture size is vary, for example MI 8 Lite's default is the lowest resolution)
     };
 

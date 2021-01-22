@@ -5,6 +5,7 @@ buildscript {
     repositories {
         google()
         jcenter()
+
     }
 
     dependencies {
@@ -16,6 +17,9 @@ rootProject.allprojects {
     repositories {
         google()
         jcenter()
+        maven {
+            url 'http://download.flutter.io'
+        }
     }
 }
 
@@ -31,10 +35,16 @@ android {
     lintOptions {
         disable 'InvalidPackage'
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
 }
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.0.0'
-    implementation 'com.github.bumptech.glide:glide:3.7.0'
+   // implementation 'com.github.bumptech.glide:glide:3.7.0'
     implementation 'com.karumi:dexter:6.0.0'
+    implementation 'com.google.mlkit:barcode-scanning:16.1.0'
+    //api "io.flutter:flutter_embedding_debug:1.0.0-d1bc06f032f9d6c148ea6b96b48261d6f545004f"
 }

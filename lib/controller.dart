@@ -5,6 +5,7 @@ class AdvCameraController {
   AdvCameraController._(
     this.channel,
     this._advCameraState,
+    this._barcodeEventChannel
   ) : assert(channel != null) {
     channel.setMethodCallHandler(_handleMethodCall);
   }
@@ -20,15 +21,20 @@ class AdvCameraController {
     // https://github.com/flutter/flutter/issues/26431
     // ignore: strong_mode_implicit_dynamic_method
     await channel.invokeMethod('waitForCamera');
-
+    final barcodeEventChannel =  EventChannel('plugins.flutter.io/adv_camera/barcodeStream');
     return AdvCameraController._(
       channel,
       advCameraState,
+      barcodeEventChannel
     );
   }
 
   @visibleForTesting
   final MethodChannel channel;
+
+
+  final EventChannel _barcodeEventChannel;
+
 
   final _AdvCameraState _advCameraState;
 
@@ -145,6 +151,17 @@ class AdvCameraController {
     return List<String>.from(result);
   }
 
+  Future<String> getPreviewSize() async {
+    // TODO(amirh): remove this on when the invokeMethod update makes it to stable Flutter.
+    // https://github.com/flutter/flutter/issues/26431
+    // ignore: strong_mode_implicit_dynamic_method
+    var result = await channel.invokeMethod('getPreviewSize', null);
+
+    if (result == null) return null;
+
+    return result as String;
+  }
+
   Future<void> setPictureSize(int width, int height) async {
     // TODO(amirh): remove this on when the invokeMethod update makes it to stable Flutter.
     // https://github.com/flutter/flutter/issues/26431
@@ -218,6 +235,20 @@ class AdvCameraController {
     }
 
     return finalTypes;
+  }
+
+  Stream<List<Barcode>> _barcodeStream;
+  Stream<List<Barcode>> get barcodeStream {
+    _barcodeStream =
+        _barcodeEventChannel.receiveBroadcastStream().transform(StreamTransformer<dynamic, List<Barcode>>.fromHandlers(
+            handleData: (data, sink) {
+              sink.add((data as List<dynamic>).map((_data) => Barcode._(_data)).toList(growable: false));
+            }));
+    return _barcodeStream;
+  }
+
+  Future<void> turnOnCamera() {
+     channel.invokeMethod('turnOn', null);
   }
 
 //  Future<void> changeCamera() async {

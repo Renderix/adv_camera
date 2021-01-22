@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
+import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
@@ -49,6 +50,7 @@ public class AdvCameraPlugin implements MethodCallHandler {
 
         final MethodChannel channel = new MethodChannel(registrar.messenger(), "adv_camera");
         channel.setMethodCallHandler(new AdvCameraPlugin(registrar));
+
     }
 
     @Override
