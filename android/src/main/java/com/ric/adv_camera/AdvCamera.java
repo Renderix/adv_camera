@@ -632,6 +632,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
             } catch (RuntimeException e) {
                 //Log.d(TAG, "set Parameters Failed\n" + pictureSize.width + ", " + pictureSize.height);
                 Log.e(TAG, "Set Camera Paramters failed", e);
+                Log.i(TAG, e.getMessage());
             }
 
             if(this.enableMlVision) {

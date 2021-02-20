@@ -64,7 +64,7 @@ public class AdvCameraPlugin implements MethodCallHandler {
 
     private void checkForPermission(final MethodChannel.Result result) {
         Dexter.withActivity(activity)
-                .withPermissions(Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE)
+                .withPermissions(Manifest.permission.CAMERA)
                 .withListener(new MultiplePermissionsListener() {
                     @Override
                     public void onPermissionsChecked(MultiplePermissionsReport report) {
