@@ -19,12 +19,13 @@ package com.ric.adv_camera.vision.barcodescanner;
 import android.content.Context;
 import android.graphics.Point;
 import android.graphics.Rect;
-import android.hardware.Camera;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.google.android.gms.tasks.Task;
+import com.google.firebase.crashlytics.FirebaseCrashlytics;
 import com.google.mlkit.vision.barcode.Barcode;
 import com.google.mlkit.vision.barcode.BarcodeScanner;
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions;
@@ -42,19 +43,19 @@ import io.flutter.plugin.common.EventChannel;
 /** Barcode Detector Demo. */
 public class BarcodeScannerProcessor extends VisionProcessorBase<List<Barcode>> {
 
-  public interface BarcodeReadCallback {
+  public interface BarcodeEventHandler {
 
-    void onBarCodeRead(List<Barcode> barcodes);
+    void onBarCodeRead(List<Barcode> barcodes,double avgFrameLatency);
   };
 
   private static final String TAG = "BarcodeProcessor";
 
   private final BarcodeScanner barcodeScanner;
 
-  BarcodeReadCallback barcodeReadCallback;
+  BarcodeEventHandler barcodeEventHandler;
 
-  public void setBarcodeReadCallback(BarcodeReadCallback barcodeReadCallback) {
-    this.barcodeReadCallback = barcodeReadCallback;
+  public void setBarcodeEventHandler(BarcodeEventHandler barcodeEventHandler) {
+    this.barcodeEventHandler = barcodeEventHandler;
   }
 
   public void setEventSink(EventChannel.EventSink _eventSink) {
@@ -89,48 +90,20 @@ public class BarcodeScannerProcessor extends VisionProcessorBase<List<Barcode>> 
     return barcodeScanner.process(image);
   }
 
+
+
   @Override
   protected void onSuccess(
-          @NonNull List<Barcode> barcodes) {
+          @NonNull List<Barcode> barcodes, @Nullable double avgFrameLatency) {
     /*for (int i = 0; i < barcodes.size(); ++i) {
       Barcode barcode = barcodes.get(i);
       //graphicOverlay.add(new BarcodeGraphic(graphicOverlay, barcode));
       logExtrasForTesting(barcode);
     }*/
 
-    if(eventSink != null) {
-      List<Map<String, Object>> encodedBarcodes = new ArrayList<>();
 
-      for (Barcode barcode : barcodes) {
-        Map<String, Object> barcodeMap = new HashMap<>();
-
-        Rect bounds = barcode.getBoundingBox();
-        if (bounds != null) {
-          barcodeMap.put("left", (double) bounds.left);
-          barcodeMap.put("top", (double) bounds.top);
-          barcodeMap.put("width", (double) bounds.width());
-          barcodeMap.put("height", (double) bounds.height());
-        }
-
-        List<double[]> points = new ArrayList<>();
-        if (barcode.getCornerPoints() != null) {
-          for (Point point : barcode.getCornerPoints()) {
-            points.add(new double[]{(double) point.x, (double) point.y});
-          }
-        }
-        barcodeMap.put("points", points);
-
-        barcodeMap.put("rawValue", barcode.getRawValue());
-        barcodeMap.put("displayValue", barcode.getDisplayValue());
-        barcodeMap.put("format", barcode.getFormat());
-        barcodeMap.put("valueType", barcode.getValueType());
-        encodedBarcodes.add(barcodeMap);
-      }
-
-      eventSink.success(encodedBarcodes);
-
-    } else {
-      Log.d(TAG, "eventSink is null");
+    if(barcodeEventHandler != null) {
+        barcodeEventHandler.onBarCodeRead(barcodes, avgFrameLatency);
     }
 
   }
@@ -172,9 +145,37 @@ public class BarcodeScannerProcessor extends VisionProcessorBase<List<Barcode>> 
     }
   }
 
+  public static  Map<String, Object> barcodeToMap(Barcode barcode) {
+    Map<String, Object> barcodeMap = new HashMap<>();
+
+    Rect bounds = barcode.getBoundingBox();
+    if (bounds != null) {
+      barcodeMap.put("left", (double) bounds.left);
+      barcodeMap.put("top", (double) bounds.top);
+      barcodeMap.put("width", (double) bounds.width());
+      barcodeMap.put("height", (double) bounds.height());
+    }
+
+    List<double[]> points = new ArrayList<>();
+    if (barcode.getCornerPoints() != null) {
+      for (Point point : barcode.getCornerPoints()) {
+        points.add(new double[]{(double) point.x, (double) point.y});
+      }
+    }
+    barcodeMap.put("points", points);
+
+    barcodeMap.put("rawValue", barcode.getRawValue());
+    barcodeMap.put("displayValue", barcode.getDisplayValue());
+    barcodeMap.put("format", barcode.getFormat());
+    barcodeMap.put("valueType", barcode.getValueType());
+    return barcodeMap;
+  }
+
 
   @Override
   protected void onFailure(@NonNull Exception e) {
     Log.e(TAG, "Barcode detection failed " + e);
+    FirebaseCrashlytics.getInstance().recordException(e);
+
   }
 }

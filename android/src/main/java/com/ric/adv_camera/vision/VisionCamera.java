@@ -108,7 +108,6 @@ public class VisionCamera {
         synchronized (processorLock) {
             stop();
             processingRunnable.release();
-            cleanScreen();
 
             if (frameProcessor != null) {
                 frameProcessor.stop();
@@ -315,10 +314,10 @@ public class VisionCamera {
         camera.addCallbackBuffer(createPreviewBuffer(previewSize));
         camera.addCallbackBuffer(createPreviewBuffer(previewSize));
         camera.addCallbackBuffer(createPreviewBuffer(previewSize));
+        /*camera.addCallbackBuffer(createPreviewBuffer(previewSize));
         camera.addCallbackBuffer(createPreviewBuffer(previewSize));
         camera.addCallbackBuffer(createPreviewBuffer(previewSize));
-        camera.addCallbackBuffer(createPreviewBuffer(previewSize));
-        camera.addCallbackBuffer(createPreviewBuffer(previewSize));
+        camera.addCallbackBuffer(createPreviewBuffer(previewSize));*/
         Log.d(TAG, "preview callbacks set for size: "+_size.width+"x"+_size.height);
     }
 
@@ -565,7 +564,6 @@ public class VisionCamera {
 
     public void setMachineLearningFrameProcessor(VisionImageProcessor processor) {
         synchronized (processorLock) {
-            cleanScreen();
             if (frameProcessor != null) {
                 frameProcessor.stop();
             }
@@ -709,7 +707,5 @@ public class VisionCamera {
         }
     }
 
-    /** Cleans up graphicOverlay and child classes can do their cleanups as well . */
-    private void cleanScreen() {
-    }
+
 }

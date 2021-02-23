@@ -50,7 +50,6 @@ import static java.lang.Math.min;
 
 /**
  * Abstract base class for vision frame processors. Subclasses need to implement {@link
- * #onSuccess(Object)} to define what they want to with the detection results and
  * {@link #detectInImage(InputImage)} to specify the detector object.
  *
  * @param <T> The type of the detected feature.
@@ -193,12 +192,13 @@ public abstract class VisionProcessorBase<T> implements VisionImageProcessor {
               totalDetectorMs += currentDetectorLatencyMs;
               maxDetectorMs = max(currentDetectorLatencyMs, maxDetectorMs);
               minDetectorMs = min(currentDetectorLatencyMs, minDetectorMs);
+              double avgFrameLatency = totalFrameMs / numRuns;
 
               // Only log inference info once per second. When frameProcessedInOneSecondInterval is
               // equal to 1, it means this is the first frame processed during the current second.
               if (frameProcessedInOneSecondInterval == 1) {
                 if(debugMode) {
-                    this.prefs.edit().putString("flutter.ConfigKey.CAMERA_DETECTOR_MS", String.valueOf((totalFrameMs / numRuns))).apply();
+                    this.prefs.edit().putString("flutter.ConfigKey.CAMERA_DETECTOR_MS", String.valueOf(avgFrameLatency)).apply();
                 }
                 Log.d(TAG, "Num of Runs: " + numRuns);
                 Log.d(
@@ -223,8 +223,7 @@ public abstract class VisionProcessorBase<T> implements VisionImageProcessor {
                 Log.d(TAG, "Memory available in system: " + availableMegs + " MB");
               }
 
-
-              VisionProcessorBase.this.onSuccess(results);
+              VisionProcessorBase.this.onSuccess(results, avgFrameLatency);
             })
         .addOnFailureListener(
             executor,
@@ -248,7 +247,7 @@ public abstract class VisionProcessorBase<T> implements VisionImageProcessor {
 
   protected abstract Task<T> detectInImage(InputImage image);
 
-  protected abstract void onSuccess(@NonNull T results);
+  protected abstract void onSuccess(@NonNull T results, @Nullable double avgFrameLatency);
 
   protected abstract void onFailure(@NonNull Exception e);
 }

@@ -30,6 +30,7 @@ import android.view.View;
 
 import androidx.annotation.NonNull;
 
+import com.google.firebase.crashlytics.FirebaseCrashlytics;
 import com.google.mlkit.vision.barcode.Barcode;
 import com.ric.adv_camera.vision.VisionCamera;
 import com.ric.adv_camera.vision.barcodescanner.BarcodeScannerProcessor;
@@ -51,6 +52,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
@@ -74,7 +76,7 @@ class WaitForCameraObject {
 
 @SuppressWarnings("ALL")
 public class AdvCamera implements MethodChannel.MethodCallHandler,
-        PlatformView, SurfaceHolder.Callback, EventChannel.StreamHandler {
+        PlatformView, SurfaceHolder.Callback, EventChannel.StreamHandler, BarcodeScannerProcessor.BarcodeEventHandler {
     private final MethodChannel methodChannel;
     private final Context context;
     private final Activity activity;
@@ -85,8 +87,6 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
     private final SurfaceHolder surfaceHolder;
     private Camera camera;
     private int cameraFacing = 0;
-    private SavePicTask savePicTask;
-    private final Camera.PictureCallback jpegCallback;
     private File folder;
     private Integer maxSize;
     private String savePath;
@@ -291,24 +291,14 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
         surfaceHolder = imgSurface.getHolder();
         surfaceHolder.addCallback(this);
 
-        jpegCallback = new Camera.PictureCallback() {
-            public void onPictureTaken(byte[] data, Camera camera) {
-                camera.stopPreview();
 
-                cancelSavePicTaskIfNeed();
-                savePicTask = new SavePicTask(data, getPhotoRotation());
-                savePicTask.executeOnExecutor(AsyncTask.SERIAL_EXECUTOR);
-            }
-        };
 
         identifyOrientationEvents();
         visionCamera = new VisionCamera(activity);
         barcodeScanner = new BarcodeScannerProcessor(this.context, this.barcodeFormats, this.enableDebugMode);
+        barcodeScanner.setBarcodeEventHandler(this);
     }
 
-    private void captureImage() {
-        camera.takePicture(null, null, jpegCallback);
-    }
 
     @Override
     public void onMethodCall(MethodCall methodCall, @NonNull MethodChannel.Result result) {
@@ -360,23 +350,6 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
                 result.success(true);
                 break;
             }
-            case "captureImage":
-                Integer maxSize = null;
-
-                if (methodCall.arguments instanceof HashMap) {
-                    @SuppressWarnings({"unchecked"})
-                    Map<String, Object> params = (Map<String, Object>) methodCall.arguments;
-                    maxSize = params.get("maxSize") == null ? null : (Integer) params.get("maxSize");
-                }
-
-                if (maxSize != null) {
-                    this.maxSize = maxSize;
-                }
-
-                captureImage();
-
-                result.success(true);
-                break;
             case "switchCamera":
                 if (cameraFacing == 0) {
                     cameraFacing = 1;
@@ -632,7 +605,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
             } catch (RuntimeException e) {
                 //Log.d(TAG, "set Parameters Failed\n" + pictureSize.width + ", " + pictureSize.height);
                 Log.e(TAG, "Set Camera Paramters failed", e);
-                Log.i(TAG, e.getMessage());
+                FirebaseCrashlytics.getInstance().recordException(e);
             }
 
             if(this.enableMlVision) {
@@ -773,17 +746,12 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
         }
     }
 
-    private void cancelSavePicTaskIfNeed() {
-        if (savePicTask != null && savePicTask.getStatus() == AsyncTask.Status.RUNNING) {
-            savePicTask.cancel(true);
-        }
-    }
+
 
     @Override
     public void onListen(Object arguments, EventChannel.EventSink events) {
 
         mEventSink = events;
-        this.barcodeScanner.setEventSink(mEventSink);
 
     }
 
@@ -793,142 +761,64 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
         mEventSink = null;
     }
 
-    @SuppressLint("StaticFieldLeak")
-    private class SavePicTask extends AsyncTask<Void, Void, String> {
-        private final byte[] data;
-        private final int rotation;
-
-        SavePicTask(byte[] data, int rotation) {
-            this.data = data;
-            this.rotation = rotation;
-        }
-
-        protected void onPreExecute() {
-
-        }
-
-        @Override
-        protected String doInBackground(Void... params) {
-            try {
-                return saveToSDCard(data, rotation);
-            } catch (Exception e) {
-                e.printStackTrace();
-                return null;
-            }
-        }
-
-        @Override
-        protected void onPostExecute(String result) {
-            Map<String, Object> params = new HashMap<>();
-            params.put("path", result);
-            methodChannel.invokeMethod("onImageCaptured", params);
-
-            refreshCamera();
-
-        }
-    }
-
-    private String saveToSDCard(byte[] data, int rotation) {
-        String imagePath = "";
-
+    long BARCODE_I_MIN = 380L;
+    long BARCODE_I_MAX = 700L;
+    long barcode_read_i = BARCODE_I_MIN;
+    boolean barcode_i_flag = true;
+    Random barcodeAlphaRandom = new Random();
+    @Override
+    public void onBarCodeRead(List<Barcode> barcodes, double avgFrameLatency) {
+        Canvas canvas = holderTransparent.lockCanvas();
         try {
-            final BitmapFactory.Options options = new BitmapFactory.Options();
-            options.inJustDecodeBounds = true;
-            BitmapFactory.decodeByteArray(data, 0, data.length, options);
-
-            DisplayMetrics metrics = new DisplayMetrics();
-            activity.getWindowManager().getDefaultDisplay().getMetrics(metrics);
-
-            int reqHeight = metrics.heightPixels;
-            int reqWidth = metrics.widthPixels;
-            // Fix for exporting image with correct resolution in landscape mode
-            if (reqWidth > reqHeight) {
-                reqHeight = metrics.widthPixels;
-                reqWidth = metrics.heightPixels;
-            }
-
-//            // Fix for exporting image with correct resolution in landscape mode
-//            if(reqWidth > reqHeight){
-//                reqHeight = metrics.widthPixels;
-//                reqWidth = metrics.heightPixels;
-//            }
-
-            options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight);
-
-            options.inJustDecodeBounds = false;
-            Bitmap bitmap = BitmapFactory.decodeByteArray(data, 0, data.length, options);
-
-            if (Build.MODEL.equalsIgnoreCase("LGM-G600L")) {
-                //for now there's a case for LGM-G600L phone that its rotation degree exceeded by 90
-                rotation -= 90;
-            }
-
-            if (maxSize != null) {
-                double initialWidth = bitmap.getWidth();
-                double initialHeight = bitmap.getHeight();
-                int width = initialHeight < initialWidth ? maxSize : (int) (initialWidth / initialHeight * maxSize);
-                int height = initialWidth <= initialHeight ? maxSize : (int) (initialHeight / initialWidth * maxSize);
-
-                bitmap = Bitmap.createScaledBitmap(bitmap, width,
-                        height, true);
-            }
-
-            if (rotation != 0) {
-                Matrix mat = new Matrix();
-                mat.postRotate(rotation);
-
-                Bitmap bitmap1 = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), mat, true);
-                if (bitmap != bitmap1) {
-                    bitmap.recycle();
-                }
-
-                if (cameraFacing == 1) {
-                    Matrix matrixMirror = new Matrix();
-                    matrixMirror.preScale(-1.0f, 1.0f);
-                    Bitmap mirroredBitmap = Bitmap.createBitmap(bitmap1, 0, 0, bitmap1.getWidth(), bitmap1.getHeight(), matrixMirror, true);
-
-                    if (mirroredBitmap != bitmap1) {
-                        bitmap1.recycle();
+            if (canvas.getHeight() > 0) {
+                canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+                //border's properties
+                paint = new Paint();
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setColor(Color.argb( (int)Math.floor(barcodeAlphaRandom.nextGaussian()*255), 191 , 7 , 17));
+                paint.setStrokeWidth(3);
+                Log.d(TAG, "onBarCodeRead: latency: " + avgFrameLatency + "ms" + " canvas:" + canvas.getWidth() + "x" + canvas.getHeight() + " barcode_read_i: " + barcode_read_i);
+                if(barcodes.isEmpty()) {
+                    canvas.drawLine(0, barcode_read_i, canvas.getWidth(), barcode_read_i, paint);
+                    barcode_read_i += barcode_i_flag ? 2 : -2;
+                    barcode_read_i = Math.max(BARCODE_I_MIN, (int) Math.floor(barcode_read_i%BARCODE_I_MAX));
+                    if (barcode_read_i == BARCODE_I_MIN) {
+                        barcode_i_flag = !barcode_i_flag;
+                        if (!barcode_i_flag)
+                            barcode_read_i = BARCODE_I_MAX;
                     }
-
-                    imagePath = getSavePhotoLocal(mirroredBitmap);
-
-                    if (mirroredBitmap != null) {
-                        mirroredBitmap.recycle();
-                    }
+                    //String frameLatencyText = String.valueOf(Math.floor(avgFrameLatency));
+                    //canvas.drawText(frameLatencyText, 5, BARCODE_I_MIN, paint);
+                    //canvas.drawTextRun(frameLatencyText.toCharArray(),0, frameLatencyText.length(),0, frameLatencyText.length(), 5, BARCODE_I_MIN, false, paint);
                 } else {
-                    imagePath = getSavePhotoLocal(bitmap1);
-                    if (bitmap1 != null) {
-                        bitmap1.recycle();
-                    }
-                }
-            } else {
-                if (cameraFacing == 1) {
-                    Matrix matrixMirror = new Matrix();
-                    matrixMirror.preScale(-1.0f, 1.0f);
-                    Bitmap mirroredBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrixMirror, true);
+                    List<Map<String, Object>> encodedBarcodes = new ArrayList<>();
+                    for (Barcode barcode : barcodes) {
+                        Rect boundingBox = barcode.getBoundingBox();
+                        boundingBox = new Rect(boundingBox.left - 50, boundingBox.top -50, boundingBox.right - 50, boundingBox.bottom - 50);
 
-                    if (mirroredBitmap != bitmap) {
-                        bitmap.recycle();
+                        if((boundingBox.top > BARCODE_I_MIN && boundingBox.top < BARCODE_I_MAX )|| (boundingBox.bottom > BARCODE_I_MIN && boundingBox.bottom < BARCODE_I_MAX)) {
+                            Log.d(TAG, "rendering barcode- top:"+boundingBox.top+" bottom:"+boundingBox.bottom+" "+barcode.getRawValue());
+                            canvas.drawRect(boundingBox, paint);
+                            Map<String, Object> barcodeMap = BarcodeScannerProcessor.barcodeToMap(barcode);
+                            encodedBarcodes.add(barcodeMap);
+                        } else {
+                            Log.d(TAG, "SKIPPING barcode- top:"+boundingBox.top+" bottom:"+boundingBox.bottom+" "+barcode.getRawValue());
+                        }
                     }
 
-                    imagePath = getSavePhotoLocal(mirroredBitmap);
-
-                    if (mirroredBitmap != null) {
-                        mirroredBitmap.recycle();
-                    }
-                } else {
-                    imagePath = getSavePhotoLocal(bitmap);
-                    if (bitmap != null) {
-                        bitmap.recycle();
+                    if(mEventSink !=null){
+                        mEventSink.success(encodedBarcodes);
+                    } else {
+                        Log.d(TAG, "eventSink is null");
                     }
                 }
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+        } finally {
+            holderTransparent.unlockCanvasAndPost(canvas);
         }
-        return imagePath;
     }
+
+
 
     private int calculateInSampleSize(BitmapFactory.Options options, int reqWidth, int reqHeight) {
         final int height = options.outHeight;
@@ -1134,6 +1024,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
         try {
             parameters = camera.getParameters();
         } catch (Exception e) {
+            FirebaseCrashlytics.getInstance().recordException(e);
             Log.e("Error", "Error getting parameter:" + e);
         }
 
