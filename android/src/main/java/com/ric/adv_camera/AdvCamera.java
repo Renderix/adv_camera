@@ -768,16 +768,16 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
     Random barcodeAlphaRandom = new Random();
     @Override
     public void onBarCodeRead(List<Barcode> barcodes, double avgFrameLatency) {
-        Canvas canvas = holderTransparent.lockCanvas();
+        canvas = holderTransparent.lockCanvas();
         try {
-            if (canvas.getHeight() > 0) {
+            if (canvas != null && canvas.getHeight() > 0) {
                 canvas.drawColor(0, PorterDuff.Mode.CLEAR);
                 //border's properties
                 paint = new Paint();
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setColor(Color.argb( (int)Math.floor(barcodeAlphaRandom.nextGaussian()*255), 191 , 7 , 17));
                 paint.setStrokeWidth(3);
-                Log.d(TAG, "onBarCodeRead: latency: " + avgFrameLatency + "ms" + " canvas:" + canvas.getWidth() + "x" + canvas.getHeight() + " barcode_read_i: " + barcode_read_i);
+                //Log.d(TAG, "onBarCodeRead: latency: " + avgFrameLatency + "ms" + " canvas:" + canvas.getWidth() + "x" + canvas.getHeight() + " barcode_read_i: " + barcode_read_i);
                 if(barcodes.isEmpty()) {
                     canvas.drawLine(0, barcode_read_i, canvas.getWidth(), barcode_read_i, paint);
                     barcode_read_i += barcode_i_flag ? 2 : -2;
@@ -797,7 +797,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
                         boundingBox = new Rect(boundingBox.left - 50, boundingBox.top -50, boundingBox.right - 50, boundingBox.bottom - 50);
 
                         if((boundingBox.top > BARCODE_I_MIN && boundingBox.top < BARCODE_I_MAX )|| (boundingBox.bottom > BARCODE_I_MIN && boundingBox.bottom < BARCODE_I_MAX)) {
-                            Log.d(TAG, "rendering barcode- top:"+boundingBox.top+" bottom:"+boundingBox.bottom+" "+barcode.getRawValue());
+                           // Log.d(TAG, "rendering barcode- top:"+boundingBox.top+" bottom:"+boundingBox.bottom+" "+barcode.getRawValue());
                             canvas.drawRect(boundingBox, paint);
                             Map<String, Object> barcodeMap = BarcodeScannerProcessor.barcodeToMap(barcode);
                             encodedBarcodes.add(barcodeMap);
@@ -814,7 +814,9 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
                 }
             }
         } finally {
-            holderTransparent.unlockCanvasAndPost(canvas);
+            if(canvas != null) {
+                holderTransparent.unlockCanvasAndPost(canvas);
+            }
         }
     }
 
