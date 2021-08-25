@@ -237,14 +237,16 @@ class AdvCameraController {
     return finalTypes;
   }
 
-  Stream<List<Barcode>> _barcodeStream;
-  Stream<List<Barcode>> get barcodeStream {
-    _barcodeStream =
-        _barcodeEventChannel.receiveBroadcastStream().transform(StreamTransformer<dynamic, List<Barcode>>.fromHandlers(
+  Stream<BarcodeResponse> _barcodeResponseStream;
+  Stream<BarcodeResponse> get barcodeResponseStream {
+    _barcodeResponseStream =
+        _barcodeEventChannel.receiveBroadcastStream().transform(StreamTransformer<dynamic, BarcodeResponse>.fromHandlers(
             handleData: (data, sink) {
-              sink.add((data as List<dynamic>).map((_data) => Barcode._(_data)).toList(growable: false));
-            }));
-    return _barcodeStream;
+              sink.add(BarcodeResponse.fromMap(data));
+            }
+            )
+        );
+      return _barcodeResponseStream;
   }
 
   Future<void> turnOnCamera() {
@@ -259,4 +261,21 @@ class AdvCameraController {
 //      'maxImage': maxImage,
 //    });
 //  }
+}
+
+
+class BarcodeResponse{
+  final List<Barcode> barCodeList;
+  final double avgLatency;
+
+  BarcodeResponse(
+      this.barCodeList,
+      this.avgLatency,
+      );
+
+  static BarcodeResponse fromMap(Map<dynamic, dynamic> data) {
+    final barcodeList = (data["barcodes"] as List<dynamic>).map((_data) => Barcode._(_data)).toList(growable: false);
+    final avgLatency = double.tryParse(data["avgLatency"].toString());
+    return BarcodeResponse(barcodeList, avgLatency);
+  }
 }
