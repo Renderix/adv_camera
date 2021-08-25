@@ -791,6 +791,7 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
                     //canvas.drawText(frameLatencyText, 5, BARCODE_I_MIN, paint);
                     //canvas.drawTextRun(frameLatencyText.toCharArray(),0, frameLatencyText.length(),0, frameLatencyText.length(), 5, BARCODE_I_MIN, false, paint);
                 } else {
+                    Map<String, Object> barcodeResponse = new HashMap<String, Object>();
                     List<Map<String, Object>> encodedBarcodes = new ArrayList<>();
                     for (Barcode barcode : barcodes) {
                         Rect boundingBox = barcode.getBoundingBox();
@@ -807,7 +808,9 @@ public class AdvCamera implements MethodChannel.MethodCallHandler,
                     }
 
                     if(mEventSink !=null){
-                        mEventSink.success(encodedBarcodes);
+                        barcodeResponse.put("barcodes", encodedBarcodes);
+                        barcodeResponse.put("avgLatency", avgFrameLatency);
+                        mEventSink.success(barcodeResponse);
                     } else {
                         Log.d(TAG, "eventSink is null");
                     }
